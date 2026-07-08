@@ -99,7 +99,7 @@ app.get('/api/check', async (req, res) => {
                 Account_Created: basicInfo.createAt || "Unknown",
                 Ban_Status: data.data.ban_check ? data.data.ban_check.status : "Unknown"
             },
-            developer: "ETHICAL HACKER BD"
+            developer: "@ZeroSpade"
         });
 
     } catch (error) {
