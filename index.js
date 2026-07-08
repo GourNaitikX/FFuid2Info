@@ -1,103 +1,123 @@
 const express = require('express');
 const axios = require('axios');
+const qs = require('qs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// JSON output ko beautiful format mein dikhane ke liye
 app.set('json spaces', 2);
 
-// ============ Home Route ============
 app.get('/', (req, res) => {
     res.json({
-        "🚀 Service": "Super Fast Free Fire Player Info API",
-        "💎 Developer": "ETHICAL HACKER BD",
-        "🔗 GitHub": "github.com/cyberarafatofficial",
-        "📌 Usage": "/api/info?uid=YOUR_UID"
+        service: "Free Fire Fast Player Info API",
+        developer: "ETHICAL HACKER BD",
+        usage: "/api/check?uid=YOUR_UID"
     });
 });
 
-// ============ Main API Route ============
-app.get('/api/info', async (req, res) => {
-    const uid = req.query.uid || req.query.id;
+app.get('/api/check', async (req, res) => {
+    const uid = req.query.uid;
 
-    // Check if UID is provided
     if (!uid) {
-        return res.status(400).json({ 
-            success: false, 
-            error: "UID required", 
-            example: "/api/info?uid=123456789" 
-        });
+        return res.status(400).json({ error: "UID parameter is required" });
     }
 
     try {
-        // 1. Fetch Nickname and Region from Shop2Game
-        const shop2gameResponse = await axios.post(
-            'https://shop2game.com/api/auth/player_id_login',
-            {
-                app_id: 100067,
-                login_id: uid,
-                app_server_id: 0
-            },
-            {
-                headers: {
-                    'Accept-Language': 'en-US,en;q=0.9',
-                    'Origin': 'https://shop2game.com',
-                    'Referer': 'https://shop2game.com/app/100067/idlogin',
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 11; Redmi Note 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36',
-                    'Content-Type': 'application/json',
-                    // Sending cookies as a single string
-                    'Cookie': '_ga=GA1.1.2123120599.1674510784; _fbp=fb.1.1674510785537.363500115; session_key=efwfzwesi9ui8drux4pmqix4cosane0y; datadome=6h5F5cx_GpbuNtAkftMpDjsbLcL3op_5W5Z-npxeT_qcEe_7pvil2EuJ6l~JlYDxEALeyvKTz3~LyC1opQgdP~7~UDJ0jYcP5p20IQlT3aBEIKDYLH~cqdfXnnR6FAL0'
-                },
-                timeout: 10000 // 10 seconds max wait time
+        // Common headers taaki hum bot na lagein
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Connection': 'keep-alive'
+        };
+
+        // ==========================================
+        // STEP 1: Main page se 'nonce' security token churana
+        // ==========================================
+        const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', { headers });
+        const html = pageResponse.data;
+
+        // Regex se nonce dhundna (WordPress hamesha nonce ek script object me rakhta hai)
+        // Hum 10-character ka hex string dhund rahe hain jo nonce ke aas-paas ho
+        let nonce = "";
+        const nonceMatch = html.match(/nonce["']?\s*:\s*["']([a-f0-9]{10})["']/i);
+        
+        if (nonceMatch && nonceMatch[1]) {
+            nonce = nonceMatch[1];
+            console.log(`✅ Naya Nonce Mil Gaya: ${nonce}`);
+        } else {
+            // Agar pehla regex fail ho jaye toh alternate check (data-nonce attribute)
+            const altNonceMatch = html.match(/data-nonce=["']([a-f0-9]{10})["']/i);
+            if (altNonceMatch && altNonceMatch[1]) {
+                nonce = altNonceMatch[1];
+                console.log(`✅ Alternate Nonce Mil Gaya: ${nonce}`);
+            } else {
+                throw new Error("Security token (nonce) nahi mila.");
             }
-        );
+        }
 
-        const playerData = shop2gameResponse.data;
+        // ==========================================
+        // STEP 2: Hidden API par POST request bhejna
+        // ==========================================
+        const targetUrl = 'https://freefirenation.com/wp-admin/admin-ajax.php';
+        
+        // Payload ko usi format me set karna jo aapke screenshot me tha (x-www-form-urlencoded)
+        const payload = qs.stringify({
+            action: 'ff_get_player_info',
+            uid: uid,
+            region: 'IND', // India region default set hai site par
+            nonce: nonce
+        });
 
-        // Agar ID exist nahi karti
-        if (!playerData.nickname) {
-            return res.status(404).json({ 
-                success: false, 
-                error: "ID NOT FOUND",
-                uid: uid
+        const apiResponse = await axios.post(targetUrl, payload, {
+            headers: {
+                ...headers,
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest', // Yeh batata hai ki yeh AJAX request hai
+                'Origin': 'https://freefirenation.com',
+                'Referer': 'https://freefirenation.com/free-fire-player-info-tool/'
+            },
+            timeout: 8000 // 8 second timeout
+        });
+
+        const data = apiResponse.data;
+
+        if (!data.success || !data.data || !data.data.basicInfo) {
+            return res.status(404).json({
+                success: false,
+                error: "Player nahi mila ya UID galat hai."
             });
         }
 
-        // 2. Fetch Ban Status from Garena Anti-Hack API
-        let banStatus = "Unknown";
-        try {
-            const banResponse = await axios.get(
-                `https://ff.garena.com/api/antihack/check_banned?lang=en&uid=${uid}`, 
-                { timeout: 5000 }
-            );
-            banStatus = banResponse.data.ban_status || "Unknown";
-        } catch (err) {
-            // Agar ban status fail bhi ho jaye, toh script nahi rukegi
-            console.log("Ban check failed:", err.message);
-        }
+        const basicInfo = data.data.basicInfo;
 
-        // 3. Final JSON Response Return Karna
+        // ==========================================
+        // STEP 3: Final Clean JSON Return Karna
+        // ==========================================
         return res.json({
             success: true,
-            uid: uid,
-            nickname: playerData.nickname,
-            region: playerData.region,
-            ban_status: banStatus,
-            api_owner: "ETHICAL HACKER BD"
+            data: {
+                Name: basicInfo.nickname || "Unknown",
+                UID: uid,
+                Level: basicInfo.level || 0,
+                Likes: basicInfo.liked || basicInfo.likes || 0,
+                Region: data.data.detected_region || "IND",
+                Account_Created: basicInfo.createAt || "Unknown",
+                Ban_Status: data.data.ban_check ? data.data.ban_check.status : "Unknown"
+            },
+            developer: "ETHICAL HACKER BD"
         });
 
     } catch (error) {
+        console.error("❌ Error:", error.message);
         return res.status(500).json({
             success: false,
-            error: "API Request Failed",
+            error: "Data fetch karne me problem hui.",
             details: error.message
         });
     }
 });
 
-// ============ Server Start ============
 app.listen(PORT, () => {
-    console.log(`\n🚀 Fast API Server is running on port ${PORT}`);
-    console.log(`💎 Developer: ETHICAL HACKER BD\n`);
+    console.log(`🚀 Fast API Server is running on port ${PORT}`);
 });
