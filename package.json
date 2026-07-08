@@ -1,14 +1,14 @@
 {
-  "name": "ff-info-api",
-  "version": "1.0.0",
-  "description": "Free Fire Player Info API using Puppeteer",
+  "name": "ff-fast-api",
+  "version": "2.0.0",
+  "description": "Super Fast Free Fire Player Info API",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^21.5.0"
+    "axios": "^1.6.0"
   },
   "engines": {
     "node": ">=18.0.0"
