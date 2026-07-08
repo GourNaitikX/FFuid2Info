@@ -1,131 +1,103 @@
 const express = require('express');
-const puppeteer = require('puppeteer');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// JSON output ko beautiful format mein dikhane ke liye
+app.set('json spaces', 2);
+
+// ============ Home Route ============
 app.get('/', (req, res) => {
     res.json({
-        service: "Free Fire Player Info Scraper API",
-        usage: "/api/check?uid=YOUR_UID"
+        "🚀 Service": "Super Fast Free Fire Player Info API",
+        "💎 Developer": "ETHICAL HACKER BD",
+        "🔗 GitHub": "github.com/cyberarafatofficial",
+        "📌 Usage": "/api/info?uid=YOUR_UID"
     });
 });
 
-app.get('/api/check', async (req, res) => {
-    const uid = req.query.uid;
+// ============ Main API Route ============
+app.get('/api/info', async (req, res) => {
+    const uid = req.query.uid || req.query.id;
 
+    // Check if UID is provided
     if (!uid) {
-        return res.status(400).json({ error: "UID parameter is required" });
+        return res.status(400).json({ 
+            success: false, 
+            error: "UID required", 
+            example: "/api/info?uid=123456789" 
+        });
     }
 
-    let browser;
     try {
-        // Launch Puppeteer with specific args required for cloud environments like Railway
-        browser = await puppeteer.launch({
-            headless: "new",
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--disable-gpu'
-            ]
-        });
-
-        const page = await browser.newPage();
-        
-        // Block images and CSS to make scraping much faster
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
-                req.abort();
-            } else {
-                req.continue();
+        // 1. Fetch Nickname and Region from Shop2Game
+        const shop2gameResponse = await axios.post(
+            'https://shop2game.com/api/auth/player_id_login',
+            {
+                app_id: 100067,
+                login_id: uid,
+                app_server_id: 0
+            },
+            {
+                headers: {
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Origin': 'https://shop2game.com',
+                    'Referer': 'https://shop2game.com/app/100067/idlogin',
+                    'User-Agent': 'Mozilla/5.0 (Linux; Android 11; Redmi Note 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Mobile Safari/537.36',
+                    'Content-Type': 'application/json',
+                    // Sending cookies as a single string
+                    'Cookie': '_ga=GA1.1.2123120599.1674510784; _fbp=fb.1.1674510785537.363500115; session_key=efwfzwesi9ui8drux4pmqix4cosane0y; datadome=6h5F5cx_GpbuNtAkftMpDjsbLcL3op_5W5Z-npxeT_qcEe_7pvil2EuJ6l~JlYDxEALeyvKTz3~LyC1opQgdP~7~UDJ0jYcP5p20IQlT3aBEIKDYLH~cqdfXnnR6FAL0'
+                },
+                timeout: 10000 // 10 seconds max wait time
             }
-        });
+        );
 
-        // 1. Go to the website
-        await page.goto('https://freefirenation.com/free-fire-player-info-tool/', { 
-            waitUntil: 'domcontentloaded', 
-            timeout: 30000 
-        });
+        const playerData = shop2gameResponse.data;
 
-        // 2. Type the UID into the input field
-        // Finding the input by its placeholder as seen in your screenshot
-        const inputSelector = 'input[placeholder*="Enter Free Fire UID"]';
-        await page.waitForSelector(inputSelector, { timeout: 10000 });
-        await page.type(inputSelector, uid);
-
-        // 3. Click the "Check Player" button
-        // Finding the button that contains the text "Check Player"
-        const [button] = await page.$x("//button[contains(., 'Check Player')]");
-        if (button) {
-            await button.click();
-        } else {
-            throw new Error("Check Player button not found");
+        // Agar ID exist nahi karti
+        if (!playerData.nickname) {
+            return res.status(404).json({ 
+                success: false, 
+                error: "ID NOT FOUND",
+                uid: uid
+            });
         }
 
-        // 4. Wait for the results to load (waiting for the UID label to appear in the results)
-        await page.waitForXPath("//div[contains(text(), 'UID:')]", { timeout: 15000 });
+        // 2. Fetch Ban Status from Garena Anti-Hack API
+        let banStatus = "Unknown";
+        try {
+            const banResponse = await axios.get(
+                `https://ff.garena.com/api/antihack/check_banned?lang=en&uid=${uid}`, 
+                { timeout: 5000 }
+            );
+            banStatus = banResponse.data.ban_status || "Unknown";
+        } catch (err) {
+            // Agar ban status fail bhi ho jaye, toh script nahi rukegi
+            console.log("Ban check failed:", err.message);
+        }
 
-        // 5. Extract the data
-        const playerData = await page.evaluate(() => {
-            const extractTextByLabel = (labelText) => {
-                // Find elements containing the label (e.g., "Level:", "Likes:")
-                const elements = Array.from(document.querySelectorAll('div, span, p, h1, h2, h3'));
-                const labelElement = elements.find(el => el.textContent.trim().startsWith(labelText));
-                
-                if (labelElement) {
-                    // Usually, the value is in the next sibling or a child element
-                    return labelElement.parentElement.textContent.replace(labelText, '').trim();
-                }
-                return null;
-            };
-
-            // Extract Name (Usually the largest text or next to a copy button)
-            // Looking for the main profile header text
-            let name = "Unknown";
-            const h2Elements = Array.from(document.querySelectorAll('h1, h2, h3, h4'));
-            // The name usually appears before the Copy button
-            const copyButton = Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Copy'));
-            if (copyButton && copyButton.previousElementSibling) {
-                name = copyButton.previousElementSibling.textContent.trim();
-            } else if (copyButton && copyButton.parentElement) {
-                 name = copyButton.parentElement.textContent.replace('Copy', '').trim();
-            } else {
-                // Fallback to finding large text
-                name = h2Elements.length > 0 ? h2Elements[0].textContent.trim() : "Unknown";
-            }
-
-            return {
-                Name: name,
-                Level: extractTextByLabel("Level:"),
-                Likes: extractTextByLabel("Likes:"),
-                Region: extractTextByLabel("Region:")
-            };
-        });
-
-        await browser.close();
-
-        // 6. Return the JSON response
+        // 3. Final JSON Response Return Karna
         return res.json({
             success: true,
-            data: {
-                uid: uid,
-                ...playerData
-            }
+            uid: uid,
+            nickname: playerData.nickname,
+            region: playerData.region,
+            ban_status: banStatus,
+            api_owner: "ETHICAL HACKER BD"
         });
 
     } catch (error) {
-        if (browser) await browser.close();
-        return res.status(500).json({ 
-            success: false, 
-            error: "Failed to fetch player data or player not found.",
-            details: error.message 
+        return res.status(500).json({
+            success: false,
+            error: "API Request Failed",
+            details: error.message
         });
     }
 });
 
+// ============ Server Start ============
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`\n🚀 Fast API Server is running on port ${PORT}`);
+    console.log(`💎 Developer: ETHICAL HACKER BD\n`);
 });
