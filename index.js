@@ -7,14 +7,6 @@ const PORT = process.env.PORT || 3000;
 
 app.set('json spaces', 2);
 
-app.get('/', (req, res) => {
-    res.json({
-        service: "Free Fire Fast Player Info API",
-        developer: "ETHICAL HACKER BD",
-        usage: "/api/check?uid=YOUR_UID"
-    });
-});
-
 app.get('/api/check', async (req, res) => {
     const uid = req.query.uid;
 
@@ -23,61 +15,65 @@ app.get('/api/check', async (req, res) => {
     }
 
     try {
-        // Common headers taaki hum bot na lagein
+        // High-level fake headers to bypass basic Cloudflare block
         const headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive'
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Cache-Control': 'max-age=0',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1'
         };
 
-        // ==========================================
-        // STEP 1: Main page se 'nonce' security token churana
-        // ==========================================
-        const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', { headers });
-        const html = pageResponse.data;
-
-        // Regex se nonce dhundna (WordPress hamesha nonce ek script object me rakhta hai)
-        // Hum 10-character ka hex string dhund rahe hain jo nonce ke aas-paas ho
-        let nonce = "";
-        const nonceMatch = html.match(/nonce["']?\s*:\s*["']([a-f0-9]{10})["']/i);
+        // 1. Homepage hit karke Nonce nikalna
+        console.log("🔍 Fetching nonce from website...");
+        const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', { 
+            headers: headers,
+            timeout: 10000
+        });
         
-        if (nonceMatch && nonceMatch[1]) {
-            nonce = nonceMatch[1];
-            console.log(`✅ Naya Nonce Mil Gaya: ${nonce}`);
+        const html = pageResponse.data;
+        let nonce = "";
+
+        // Super strong Regex to find nonce anywhere in WordPress HTML
+        const nonceRegex = /["']?nonce["']?\s*[:=]\s*["']([a-f0-9]{10})["']/i;
+        const match = html.match(nonceRegex);
+
+        if (match && match[1]) {
+            nonce = match[1];
+            console.log(`✅ Nonce Found: ${nonce}`);
         } else {
-            // Agar pehla regex fail ho jaye toh alternate check (data-nonce attribute)
-            const altNonceMatch = html.match(/data-nonce=["']([a-f0-9]{10})["']/i);
-            if (altNonceMatch && altNonceMatch[1]) {
-                nonce = altNonceMatch[1];
-                console.log(`✅ Alternate Nonce Mil Gaya: ${nonce}`);
-            } else {
-                throw new Error("Security token (nonce) nahi mila.");
-            }
+            // Agar HTML aa gaya par nonce nahi mila
+            return res.status(500).json({
+                success: false,
+                error: "Nonce bypass fail. Website layout changed or blocked.",
+                html_snippet: html.substring(0, 200) // Checking ki Cloudflare page toh nahi aaya
+            });
         }
 
-        // ==========================================
-        // STEP 2: Hidden API par POST request bhejna
-        // ==========================================
-        const targetUrl = 'https://freefirenation.com/wp-admin/admin-ajax.php';
-        
-        // Payload ko usi format me set karna jo aapke screenshot me tha (x-www-form-urlencoded)
+        // 2. Hidden API (admin-ajax) par POST request
+        console.log("🚀 Sending POST request to Hidden API...");
         const payload = qs.stringify({
             action: 'ff_get_player_info',
             uid: uid,
-            region: 'IND', // India region default set hai site par
+            region: 'IND',
             nonce: nonce
         });
 
-        const apiResponse = await axios.post(targetUrl, payload, {
+        const apiResponse = await axios.post('https://freefirenation.com/wp-admin/admin-ajax.php', payload, {
             headers: {
                 ...headers,
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest', // Yeh batata hai ki yeh AJAX request hai
+                'X-Requested-With': 'XMLHttpRequest',
                 'Origin': 'https://freefirenation.com',
-                'Referer': 'https://freefirenation.com/free-fire-player-info-tool/'
+                'Referer': 'https://freefirenation.com/free-fire-player-info-tool/',
+                'Cookie': pageResponse.headers['set-cookie'] ? pageResponse.headers['set-cookie'].join('; ') : '' // Pass cookies for security
             },
-            timeout: 8000 // 8 second timeout
+            timeout: 10000
         });
 
         const data = apiResponse.data;
@@ -91,9 +87,7 @@ app.get('/api/check', async (req, res) => {
 
         const basicInfo = data.data.basicInfo;
 
-        // ==========================================
-        // STEP 3: Final Clean JSON Return Karna
-        // ==========================================
+        // 3. Clean JSON Output
         return res.json({
             success: true,
             data: {
@@ -109,10 +103,16 @@ app.get('/api/check', async (req, res) => {
         });
 
     } catch (error) {
+        let errorMsg = "Server Fetch Error.";
+        // Agar error 503 hai, mtlb Cloudflare ne block kar diya
+        if (error.response && error.response.status === 503) {
+            errorMsg = "Cloudflare Turnstile (Anti-Bot) ne block kar diya. Puppeteer is mandatory for this site.";
+        }
+        
         console.error("❌ Error:", error.message);
         return res.status(500).json({
             success: false,
-            error: "Data fetch karne me problem hui.",
+            error: errorMsg,
             details: error.message
         });
     }
