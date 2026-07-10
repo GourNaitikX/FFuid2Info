@@ -9,7 +9,6 @@ app.set('json spaces', 2);
 
 app.get('/api/check', async (req, res) => {
     const uid = req.query.uid;
-    // Default region IND set kar diya hai, baaki agar URL mein pass karoge to wo le lega
     const region = req.query.region || 'IND'; 
 
     if (!uid) {
@@ -25,38 +24,50 @@ app.get('/api/check', async (req, res) => {
             'Upgrade-Insecure-Requests': '1'
         };
 
-        // Step 1: Fetching homepage for nonce
-        console.log("🔍 Fetching homepage for nonce...");
+        // Step 1: Fetching homepage for nonce AND Cookies
+        console.log("🔍 Fetching homepage for nonce and cookies...");
         const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', {
             headers: headers,
             timeout: 15000 
         });
 
         const htmlCode = pageResponse.data;
-        let nonceValue = "";
         
+        // 🔥 COOKIES PAKAD LI: Ye sabse important step hai
+        const rawCookies = pageResponse.headers['set-cookie'];
+        let formattedCookies = "";
+        if (rawCookies) {
+            formattedCookies = rawCookies.map(cookie => cookie.split(';')[0]).join('; ');
+            console.log("🍪 Cookies saved!");
+        }
+
+        let nonceValue = "";
+        // Website ki script se exact nonce nikalne ka regex
         const nonceMatch = htmlCode.match(/"nonce":"([^"]+)"/) || htmlCode.match(/name="[^"]*nonce[^"]*" value="([^"]+)"/);
 
         if (nonceMatch && nonceMatch[1]) {
             nonceValue = nonceMatch[1];
             console.log("✅ Nonce found:", nonceValue);
+        } else {
+            console.log("⚠️ Warning: Nonce nahi mila!");
         }
 
-        // Step 2: Asli Payload setup (Screenshot se nikala hua data)
+        // Step 2: Payload setup
         const requestPayload = qs.stringify({
-            action: 'ff_get_player_info', // Asli Action Name
-            uid: uid,                     // URL se aaya hua UID
-            region: region,               // Naya parameter jo console me mila
+            action: 'ff_get_player_info',
+            uid: uid,                     
+            region: region,               
             nonce: nonceValue
         });
 
-        // Step 3: API Request bhej rahe hain
+        // Step 3: API Request bhej rahe hain (Cookies ke sath)
         console.log("🚀 Fetching Player Data...");
         const dataResponse = await axios.post('https://freefirenation.com/wp-admin/admin-ajax.php', requestPayload, {
             headers: {
                 ...headers,
                 'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Requested-With': 'XMLHttpRequest'
+                'X-Requested-With': 'XMLHttpRequest',
+                'Cookie': formattedCookies // 🔥 Wahi cookies wapas bhej rahe hain
             },
             timeout: 15000
         });
