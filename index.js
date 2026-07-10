@@ -1,4 +1,4 @@
-Const express = require('express');
+const express = require('express'); // Fixed: Changed 'Const' to 'const'
 const axios = require('axios');
 const qs = require('qs');
 
@@ -33,4 +33,19 @@ app.get('/api/check', async (req, res) => {
         console.log("🔍 Fetching nonce from website...");
         const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', { 
             headers: headers,
-            timeout: 10000
+            timeout: 10000 
+        }); // Fixed: Closed the axios.get call
+
+        // Send a response back so the request doesn't hang
+        res.json({ message: "Successfully fetched", data: pageResponse.data });
+
+    } catch (error) { // Fixed: Added the missing catch block
+        console.error("Error fetching data:", error.message);
+        res.status(500).json({ error: "Internal Server Error" });
+    }
+}); // Fixed: Closed the app.get route
+
+// Fixed: Added app.listen so the server actually runs
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
