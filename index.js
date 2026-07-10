@@ -3,12 +3,12 @@ const axios = require('axios');
 const qs = require('qs');
 
 const app = express();
-// Railway logs mein 8080 show ho raha tha, isliye 8080 ka fallback best hai
+// Port 8080 set kiya hai Railway ke liye
 const PORT = process.env.PORT || 8080;
 
 app.set('json spaces', 2);
 
-// Railway Health Check ke liye Root Route (Bohot zaruri hai)
+// Railway Health Check ke liye Root Route
 app.get('/', (req, res) => {
     res.status(200).send("🚀 Server is live and running perfectly!");
 });
@@ -37,23 +37,18 @@ app.get('/api/check', async (req, res) => {
 
         console.log(`🔍 Fetching data for UID: ${uid}...`);
 
-        // 1. Homepage hit karke request bhejna
+        // Homepage hit karke request bhejna
         const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', { 
             headers: headers,
-            timeout: 8000 // 8 seconds timeout (infinite hang se bachane ke liye)
+            timeout: 8000 // 8 seconds timeout
         });
 
-        // ---------------------------------------------------------
-        // Yahan tumhara aage ka logic aayega (Nonce nikalna etc.)
-        // ---------------------------------------------------------
-        
         // Agar success hua toh ye response jayega
         res.status(200).json({
             success: true,
             message: "Data fetched successfully",
             uid: uid,
             status_code: pageResponse.status
-            // Yahan extracted data variables add kar dena
         });
 
     } catch (error) {
@@ -85,7 +80,7 @@ app.get('/api/check', async (req, res) => {
     }
 });
 
-// Server start karna
-app.listen(PORT, () => {
+// CRITICAL FIX: '0.0.0.0' add kiya hai taaki Railway crash na kare
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Fast API Server is running on port ${PORT}`);
 });
