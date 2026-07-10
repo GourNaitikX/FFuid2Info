@@ -3,9 +3,15 @@ const axios = require('axios');
 const qs = require('qs');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Railway logs mein 8080 show ho raha tha, isliye 8080 ka fallback best hai
+const PORT = process.env.PORT || 8080;
 
 app.set('json spaces', 2);
+
+// Railway Health Check ke liye Root Route (Bohot zaruri hai)
+app.get('/', (req, res) => {
+    res.status(200).send("🚀 Server is live and running perfectly!");
+});
 
 app.get('/api/check', async (req, res) => {
     const uid = req.query.uid;
@@ -29,95 +35,57 @@ app.get('/api/check', async (req, res) => {
             'Sec-Fetch-User': '?1'
         };
 
-        // 1. Homepage hit karke Nonce nikalna
-        console.log("🔍 Fetching nonce from website...");
+        console.log(`🔍 Fetching data for UID: ${uid}...`);
+
+        // 1. Homepage hit karke request bhejna
         const pageResponse = await axios.get('https://freefirenation.com/free-fire-player-info-tool/', { 
             headers: headers,
-            timeout: 10000
+            timeout: 8000 // 8 seconds timeout (infinite hang se bachane ke liye)
         });
+
+        // ---------------------------------------------------------
+        // Yahan tumhara aage ka logic aayega (Nonce nikalna etc.)
+        // ---------------------------------------------------------
         
-        const html = pageResponse.data;
-        let nonce = "";
-
-        // Super strong Regex to find nonce anywhere in WordPress HTML
-        const nonceRegex = /["']?nonce["']?\s*[:=]\s*["']([a-f0-9]{10})["']/i;
-        const match = html.match(nonceRegex);
-
-        if (match && match[1]) {
-            nonce = match[1];
-            console.log(`✅ Nonce Found: ${nonce}`);
-        } else {
-            // Agar HTML aa gaya par nonce nahi mila
-            return res.status(500).json({
-                success: false,
-                error: "Nonce bypass fail. Website layout changed or blocked.",
-                html_snippet: html.substring(0, 200) // Checking ki Cloudflare page toh nahi aaya
-            });
-        }
-
-        // 2. Hidden API (admin-ajax) par POST request
-        console.log("🚀 Sending POST request to Hidden API...");
-        const payload = qs.stringify({
-            action: 'ff_get_player_info',
-            uid: uid,
-            region: 'IND',
-            nonce: nonce
-        });
-
-        const apiResponse = await axios.post('https://freefirenation.com/wp-admin/admin-ajax.php', payload, {
-            headers: {
-                ...headers,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Origin': 'https://freefirenation.com',
-                'Referer': 'https://freefirenation.com/free-fire-player-info-tool/',
-                'Cookie': pageResponse.headers['set-cookie'] ? pageResponse.headers['set-cookie'].join('; ') : '' // Pass cookies for security
-            },
-            timeout: 10000
-        });
-
-        const data = apiResponse.data;
-
-        if (!data.success || !data.data || !data.data.basicInfo) {
-            return res.status(404).json({
-                success: false,
-                error: "Player nahi mila ya UID galat hai."
-            });
-        }
-
-        const basicInfo = data.data.basicInfo;
-
-        // 3. Clean JSON Output
-        return res.json({
+        // Agar success hua toh ye response jayega
+        res.status(200).json({
             success: true,
-            data: {
-                Name: basicInfo.nickname || "Unknown",
-                UID: uid,
-                Level: basicInfo.level || 0,
-                Likes: basicInfo.liked || basicInfo.likes || 0,
-                Region: data.data.detected_region || "IND",
-                Account_Created: basicInfo.createAt || "Unknown",
-                Ban_Status: data.data.ban_check ? data.data.ban_check.status : "Unknown"
-            },
-            developer: "@ZeroSpade"
+            message: "Data fetched successfully",
+            uid: uid,
+            status_code: pageResponse.status
+            // Yahan extracted data variables add kar dena
         });
 
     } catch (error) {
-        let errorMsg = "Server Fetch Error.";
-        // Agar error 503 hai, mtlb Cloudflare ne block kar diya
-        if (error.response && error.response.status === 503) {
-            errorMsg = "Cloudflare Turnstile (Anti-Bot) ne block kar diya. Puppeteer is mandatory for this site.";
+        console.error("❌ AXIOS ERROR:", error.message);
+
+        // Agar timeout ho gaya ho
+        if (error.code === 'ECONNABORTED') {
+            return res.status(504).json({ 
+                success: false, 
+                error: "Request Timeout - Target website ne respond nahi kiya" 
+            });
         }
-        
-        console.error("❌ Error:", error.message);
-        return res.status(500).json({
-            success: false,
-            error: errorMsg,
-            details: error.message
+
+        // Agar website ne 403 (Forbidden) ya 429 (Rate Limit) diya ho
+        if (error.response) {
+            return res.status(error.response.status).json({
+                success: false,
+                error: "Target website blocked the request",
+                status: error.response.status
+            });
+        }
+
+        // Baki koi bhi internal error
+        res.status(500).json({ 
+            success: false, 
+            error: "Internal Server Error", 
+            details: error.message 
         });
     }
 });
 
+// Server start karna
 app.listen(PORT, () => {
     console.log(`🚀 Fast API Server is running on port ${PORT}`);
 });
